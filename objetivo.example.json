@@ -1,0 +1,9 @@
+[
+  { "ticker": "SPY",  "objetivo": 30, "grupo": "base" },
+  { "ticker": "QQQ",  "objetivo": 15, "grupo": "base" },
+  { "ticker": "GLD",  "objetivo": 10, "grupo": "base" },
+  { "ticker": "XLF",  "objetivo": 10, "grupo": "base" },
+  { "ticker": "JPM",  "objetivo": 15, "grupo": "apuestas" },
+  { "ticker": "AAPL", "objetivo": 10, "grupo": "apuestas" },
+  { "ticker": "TSLA", "objetivo": 10, "grupo": "apuestas" }
+]

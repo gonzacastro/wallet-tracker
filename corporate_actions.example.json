@@ -1,0 +1,6 @@
+[
+  { "ticker": "SPY", "date": "2026-05-29", "ratio": 3,
+    "note": "cambio de ratio del CEDEAR: 1 pasa a ser 3" },
+  { "ticker": "AAPL", "date": "2020-08-31", "ratio": 4,
+    "note": "split 4:1 de la accion, el CEDEAR acompana" }
+]

@@ -1,0 +1,23 @@
+.env
+*.db
+*.db-journal
+data/
+reports/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+dist/
+build/
+*.egg-info/
+
+# Archivos del sistema
+.DS_Store
+
+# Configuracion personal (los .example.json si van al repo)
+rules.json
+corporate_actions.json
+objetivo.json
+
+# Exportaciones
+exports/

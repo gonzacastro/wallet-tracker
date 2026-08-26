@@ -1,0 +1,5 @@
+[
+  { "pattern": "acreditacion plazo fijo",  "category": "INTEREST" },
+  { "pattern": "canje de titulos",         "category": "ADJUSTMENT" },
+  { "pattern": "reintegro de comisiones",  "category": "FEE" }
+]
