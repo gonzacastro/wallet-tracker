@@ -76,7 +76,16 @@ def _sync_binance(settings: Settings, conn: sqlite3.Connection, log) -> dict:
     try:
         return {f"binance_{k}": v for k, v in binance_sync(settings, conn, log=log).items()}
     except BinanceError as exc:
-        console.print(f"[yellow]Binance:[/] no se pudo sincronizar ({exc})")
+        # El 451 es la restriccion geografica de Binance, no un problema del
+        # programa: conviene decirlo asi y no escupir el JSON de la respuesta.
+        if "HTTP 451" in str(exc):
+            console.print(
+                "[yellow]Binance no responde desde tu ubicacion[/] (restriccion "
+                "geografica). El resto del reporte se arma igual, con los ultimos "
+                "datos de cripto que se pudieron bajar."
+            )
+        else:
+            console.print(f"[yellow]Binance:[/] no se pudo sincronizar ({str(exc)[:120]})")
         return {}
 
 

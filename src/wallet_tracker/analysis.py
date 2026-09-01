@@ -35,6 +35,11 @@ from .valuation import FxBook, NavPoint, PriceBook, build_nav_series, external_f
 #: Acciones societarias declaradas a mano (cambios de ratio, canjes).
 CORPORATE_ACTIONS_FILE = "corporate_actions.json"
 
+#: Dias a partir de los cuales un precio se considera viejo. Con mas de un
+#: broker, que uno falle no puede pasar inadvertido: sus tenencias quedarian
+#: valuadas al precio de la ultima vez que respondio.
+STALE_DAYS = 3
+
 
 def _downsample(points: list[tuple[date, float]], max_points: int = 180) -> list[tuple[date, float]]:
     """Reduce la serie para que los graficos del reporte no pesen de mas."""
@@ -641,10 +646,13 @@ def build_report(
     meta = load_instrument_meta(conn)
     instrument_currency = {t: m["currency"] for t, m in meta.items()}
 
+    # Se guarda tambien *cuando* se tomo la foto: con mas de un broker, uno
+    # puede haber fallado y sus precios ser de hace dias. Darlos por actuales
+    # mostraria una valuacion vieja como si fuera de hoy.
     snapshot_prices = {
-        r["ticker"]: (float(r["price"]), r["currency"] or "")
+        r["ticker"]: (float(r["price"]), r["currency"] or "", date.fromisoformat(r["ts"][:10]))
         for r in conn.execute(
-            "SELECT ticker, price, currency FROM snapshots s WHERE kind='instrument' "
+            "SELECT ticker, price, currency, ts FROM snapshots s WHERE kind='instrument' "
             f"AND ticker IS NOT NULL AND price > 0 AND {LATEST_PER_ACCOUNT}"
         )
     }
@@ -660,13 +668,13 @@ def build_report(
         # La moneda del precio no tiene por que ser la del bolsillo en el que se
         # opero: un CEDEAR comprado con dolar cable cotiza en pesos.
         price_currency = quote[1] if quote else (info.get("currency") or holding.currency)
-        price_date: date | None = as_of if price else None
-        stale = False
+        price_date: date | None = quote[2] if quote else None
+        stale = bool(price_date and (as_of - price_date).days > STALE_DAYS)
         if price is None:
             last = prices.last(holding.ticker)
             if last:
                 price_date, price = last
-                stale = (as_of - price_date).days > 5
+                stale = (as_of - price_date).days > STALE_DAYS
 
         flows = _flows_for_ticker(holding, events)
         market_value = holding.quantity * price if (price and holding.is_open) else (0.0 if not holding.is_open else None)
@@ -797,6 +805,7 @@ def build_report(
             continue
         info = meta.get(ticker, {})
         moneda = (quote[1] if quote else info.get("currency")) or "Pesos"
+        tomada = quote[2] if quote else as_of
         valor = cantidad * precio
         positions.append(Position(
             ticker=ticker,
@@ -805,7 +814,8 @@ def build_report(
             instrument_type=info.get("type", ""),
             quantity=cantidad,
             price=precio,
-            price_date=as_of,
+            price_date=tomada,
+            stale_price=(as_of - tomada).days > STALE_DAYS,
             market_value=valor,
             market_value_ars=converter.to_ars(valor, moneda, as_of),
             cost_unknown=True,
