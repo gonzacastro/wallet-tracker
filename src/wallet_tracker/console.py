@@ -415,9 +415,10 @@ def render_dashboard(
         console.print(panel)
 
 
-def allocation_table(rows: Sequence, total_actual: float, amount: float,
-                     *, con_objetivo: bool, prices: dict[str, float] | None = None) -> Table:
-    """Adonde va cada peso del aporte para acercarte a tu objetivo."""
+def allocation_table(rows: Sequence, total_actual: float, amount: float, *,
+                     con_objetivo: bool, prices: dict[str, float] | None = None,
+                     commission: float = 0.0) -> Table:
+    """Que orden cargar en el broker para acercarte a tu objetivo."""
     fuente = "objetivo.json" if con_objetivo else "partes iguales (no hay objetivo.json)"
     table = Table(
         title=f"Repartir {money(amount)} · objetivo: {fuente}",
@@ -425,31 +426,41 @@ def allocation_table(rows: Sequence, total_actual: float, amount: float,
         expand=True,
     )
     for col, justify in (
-        ("Especie", "left"), ("Grupo", "left"), ("Tenes", "right"),
-        ("Objetivo", "right"), ("Poner aca", "right"), ("Nominales", "right"),
-        ("Queda en", "right"),
+        ("Especie", "left"), ("Tenes", "right"), ("Objetivo", "right"),
+        ("Nominales", "right"), ("Poner en PPI", "right"), ("Queda en", "right"),
     ):
         table.add_column(col, justify=justify)
 
+    prices = prices or {}
     final = total_actual + amount
+    total_pagar = 0.0
     for row in rows:
-        actual = row.current_weight(total_actual)
-        sobra = row.amount <= 0
-        price = (prices or {}).get(row.ticker)
-        units = row.units(price)
+        precio = prices.get(row.ticker)
+        unidades = row.units(precio, commission)
+        pagar = row.cost(precio, commission)
+        total_pagar += pagar
+        if not unidades:
+            table.add_row(
+                Text(row.ticker, style="dim"), pct(row.current_weight(total_actual)),
+                pct(row.target_weight), Text("-", style="dim"),
+                Text("ya esta arriba" if row.amount <= 0 else "no alcanza", style="dim"),
+                pct(row.final_weight(final)),
+            )
+            continue
         table.add_row(
-            Text(row.ticker, style="bold" if not sobra else "dim"),
-            Text(row.group or "-", style="dim"),
-            pct(actual),
+            Text(row.ticker, style="bold"),
+            pct(row.current_weight(total_actual)),
             pct(row.target_weight),
-            Text(money(row.amount), style="bold green") if not sobra
-            else Text("ya esta arriba", style="dim"),
-            (Text(f"{int(units)}", style="bold") + Text(f" x {money(price)}", style="dim"))
-            if (units and units >= 1) else Text("-", style="dim"),
+            Text(f"{unidades}", style="bold") + Text(f" x {money(precio)}", style="dim"),
+            Text(money(pagar), style="bold green"),
             pct(row.final_weight(final)),
         )
     table.add_section()
-    table.add_row("", "", "", "", Text(money(sum(r.amount for r in rows)), style="bold"), "", "")
+    sobra = amount - total_pagar
+    table.add_row(
+        "", "", "", Text("total", style="dim"), Text(money(total_pagar), style="bold"),
+        Text(f"sobran {money(sobra)}", style="dim"),
+    )
     return table
 
 

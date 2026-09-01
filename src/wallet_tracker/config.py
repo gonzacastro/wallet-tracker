@@ -45,6 +45,11 @@ PPI_CCL_SETTLEMENT=A-24HS
 # Especie contra la que compararse en el panel (tiene que ser una que operaste).
 PPI_BENCHMARK=SPY
 
+# Comision total de una compra, como fraccion: 0.006 = 0.6%. Incluye comision,
+# IVA y derechos de mercado. Se usa para decirte cuanto tipear en el broker.
+# Miralo en la pantalla de compra: "estimado a pagar" dividido nominales x precio.
+PPI_COMISION=0.006
+
 # Binance (opcional). Crea las claves con permisos de SOLO LECTURA: desactiva
 # "Enable Withdrawals" y "Enable Spot Trading". La herramienta solo lee.
 # Sin claves, la cartera de Binance simplemente no aparece.
@@ -60,6 +65,13 @@ def _as_bool(value: str | None, default: bool = False) -> bool:
     if value is None or value == "":
         return default
     return value.strip().lower() in {"1", "true", "yes", "y", "si", "sí"}
+
+
+def _as_float(value: str | None, default: float) -> float:
+    try:
+        return float((value or "").strip())
+    except ValueError:
+        return default
 
 
 def _as_date(value: str | None, default: date) -> date:
@@ -83,6 +95,7 @@ class Settings:
     #: Especie contra la que se compara el panel. Va ultima y con default
     #: porque es opcional: sin ella el panel simplemente no muestra la fila.
     benchmark: str = "SPY"
+    commission: float = 0.006
     binance_key: str = ""
     binance_secret: str = ""
 
@@ -116,6 +129,7 @@ def load_settings(env_file: str | os.PathLike[str] | None = None) -> Settings:
         ccl_instrument_type=os.getenv("PPI_CCL_INSTRUMENT_TYPE", "BONOS").strip(),
         ccl_settlement=os.getenv("PPI_CCL_SETTLEMENT", "A-24HS").strip(),
         benchmark=os.getenv("PPI_BENCHMARK", "SPY").strip().upper(),
+        commission=_as_float(os.getenv("PPI_COMISION"), 0.006),
         binance_key=os.getenv("BINANCE_API_KEY", "").strip(),
         binance_secret=os.getenv("BINANCE_API_SECRET", "").strip(),
     )

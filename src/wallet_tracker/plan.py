@@ -62,13 +62,26 @@ class Allocation:
     def final_weight(self, total: float) -> float:
         return self.final / total if total else 0.0
 
-    def units(self, price: float | None) -> float | None:
-        """Cuantos nominales compra el monto asignado al precio de hoy.
+    def units(self, price: float | None, commission: float = 0.0) -> int:
+        """Cuantos nominales enteros entran en el monto asignado.
 
-        Se compran papeles enteros, asi que el monto exacto es orientativo: lo
-        accionable es la cantidad.
+        Se compran papeles enteros y el broker cobra comision arriba del precio,
+        asi que lo que entra en el presupuesto es menos que dividir monto sobre
+        precio. Sin esto, el numero que te da la tabla no alcanza para comprar
+        lo que dice.
         """
-        return (self.amount / price) if price else None
+        if not price:
+            return 0
+        return int(self.amount // (price * (1 + commission)))
+
+    def cost(self, price: float | None, commission: float = 0.0) -> float:
+        """Lo que vas a pagar por esos nominales enteros, comision incluida.
+
+        Es el numero que se tipea en el broker: su campo de monto es un
+        presupuesto y con este entran exactamente los nominales calculados.
+        """
+        unidades = self.units(price, commission)
+        return unidades * (price or 0.0) * (1 + commission)
 
 
 def load_targets(path: str | Path | None) -> list[Target]:

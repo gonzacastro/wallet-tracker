@@ -181,25 +181,39 @@ function leerMonto() {
   return crudo ? parseInt(crudo, 10) : 0;
 }
 
+// Cuantos papeles enteros entran en el presupuesto, con la comision arriba
+// del precio, y cuanto se paga por ellos. Ese pago es el numero que va en el
+// campo de monto del broker: es un presupuesto, y con este entran exactos.
+function nominales(f) {
+  return f.price ? Math.floor(f.monto / (f.price * (1 + COMISION))) : 0;
+}
+function aPagar(f) {
+  return nominales(f) * (f.price || 0) * (1 + COMISION);
+}
+
 function pintar() {
   const {filas, actual, final} = repartir(leerMonto());
+  let total = 0;
   document.getElementById("reparto-body").innerHTML = filas.map((f) => {
-    const nominales = f.price ? Math.floor(f.monto / f.price) : 0;
-    const accion = f.monto > 0
-      ? '<span class="buy">$' + fmt.format(Math.round(f.monto)) + "</span>"
-      : '<span class="skip">ya esta arriba</span>';
-    const cuantos = nominales >= 1
-      ? '<span class="units">' + nominales + "</span> x $" + fmt.format(f.price)
+    const n = nominales(f);
+    total += aPagar(f);
+    const cuantos = n >= 1
+      ? '<span class="units">' + n + "</span> x $" + fmt.format(f.price)
       : '<span class="skip">&mdash;</span>';
+    const pagar = n >= 1
+      ? '<span class="buy">$' + fmt.format(Math.round(aPagar(f))) + "</span>"
+      : '<span class="skip">' + (f.monto > 0 ? "no alcanza" : "ya esta arriba") + "</span>";
     return '<tr><td class="ticker">' + f.ticker + "</td>"
       + "<td>" + pct(actual ? f.value / actual : 0) + "</td>"
       + "<td>" + pct(f.peso) + "</td>"
-      + "<td>" + accion + "</td>"
       + "<td>" + cuantos + "</td>"
+      + "<td>" + pagar + "</td>"
       + "<td>" + pct(final ? (f.value + f.monto) / final : 0) + "</td></tr>";
   }).join("");
-  const puesto = filas.reduce((s, f) => s + f.monto, 0);
-  document.getElementById("reparto-total").textContent = "$" + fmt.format(Math.round(puesto));
+  document.getElementById("reparto-total").textContent = "$" + fmt.format(Math.round(total));
+  const sobra = leerMonto() - total;
+  document.getElementById("reparto-sobra").textContent =
+    sobra > 0 ? "sobran $" + fmt.format(Math.round(sobra)) : "";
 }
 
 // Solo se actualiza el texto del porcentaje, no la fila entera: si se redibuja
@@ -514,12 +528,13 @@ def _allocator(report: PortfolioReport) -> str:
     </div>
     <table>
       <thead><tr>
-        <th>Especie</th><th>Tenes</th><th>Objetivo</th><th>Poner aca</th>
-        <th>Nominales</th><th>Queda en</th>
+        <th>Especie</th><th>Tenes</th><th>Objetivo</th><th>Nominales</th>
+        <th>Poner en PPI</th><th>Queda en</th>
       </tr></thead>
       <tbody id="reparto-body"></tbody>
       <tfoot><tr>
-        <th colspan="3">Total</th><th id="reparto-total"></th><th></th><th></th>
+        <th colspan="4">Total</th><th id="reparto-total"></th>
+        <th id="reparto-sobra"></th>
       </tr></tfoot>
     </table>
     <details class="tune">
@@ -531,9 +546,11 @@ def _allocator(report: PortfolioReport) -> str:
       <div class="tune-grid">{sliders}</div>
     </details>
   </div>
+  <p class="legend"><b>Poner en PPI</b> es el numero que va en el campo de monto de la orden:
+     ya tiene adentro la comision y ya esta redondeado a papeles enteros. Si sobra plata es
+     porque los nominales no son divisibles; queda para el aporte siguiente.</p>
   <p class="legend">Esto <b>no dice que instrumento va a subir</b>: reparte la plata nueva hacia
-     lo que quedo por debajo de tu objetivo, comprando y sin vender nada. La columna de
-     nominales es la accionable, porque compras papeles enteros.</p>
+     lo que quedo por debajo de tu objetivo, comprando y sin vender nada.</p>
   <p class="legend">Lo que ajustes con los deslizadores queda guardado en este navegador.</p>"""
 
 
@@ -598,9 +615,10 @@ def _monthly_rows(report: PortfolioReport) -> str:
     )
 
 
-def render_html(report: PortfolioReport) -> str:
+def render_html(report: PortfolioReport, commission: float = 0.0) -> str:
     nav_ars = [(p.date, p.nav_ars) for p in report.nav_series if p.nav_ars]
     nav_usd = [(p.date, p.nav_usd) for p in report.nav_series if p.nav_usd]
+    comision = commission
     from .plan import load_targets
     objetivo = {t.ticker: t.weight * 100 for t in load_targets("objetivo.json")}
     instrumentos = _instrument_cards(report)
@@ -772,7 +790,8 @@ def render_html(report: PortfolioReport) -> str:
 
   {avisos_section}
 
-  <script>const DATOS = {datos_json};</script>
+  <script>const DATOS = {datos_json};
+  const COMISION = {comision};</script>
   <script>{ALLOCATOR_JS if allocator else ''}</script>
 
   <footer>
@@ -783,8 +802,8 @@ def render_html(report: PortfolioReport) -> str:
 </div>"""
 
 
-def write_report(report: PortfolioReport, path: Path) -> Path:
+def write_report(report: PortfolioReport, path: Path, commission: float = 0.0) -> Path:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(render_html(report), encoding="utf-8")
+    path.write_text(render_html(report, commission), encoding="utf-8")
     return path

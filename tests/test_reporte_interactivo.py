@@ -39,6 +39,9 @@ def position(ticker, value, price, quantity):
     )
 
 
+#: La misma comision con la que se genera el reporte en el fixture.
+COMISION = 0.006
+
 CARTERA = [
     position("SPY", 3_000_000.0, 20_000.0, 150),
     position("TSLA", 800_000.0, 40_000.0, 20),
@@ -59,7 +62,7 @@ def reporte_html():
         events=[],
         fifo=FifoResult(holdings={}, closed=[], warnings=[]),
     )
-    return render_html(report)
+    return render_html(report, COMISION)
 
 
 def test_el_reporte_trae_los_datos_de_cada_especie(reporte_html):
@@ -128,15 +131,21 @@ def test_el_javascript_del_reporte_es_sintacticamente_valido(reporte_html, tmp_p
 @pytest.mark.parametrize("monto", [50_000, 1_000_000, 20_000_000])
 def test_el_reparto_en_javascript_da_lo_mismo_que_en_python(reporte_html, tmp_path, monto):
     datos = re.search(r"const DATOS = (\[.*?\]);", reporte_html, re.S).group(1)
-    fuente = re.search(r"function repartir\(monto\) \{.*?\n\}", reporte_html, re.S).group(0)
+    fuente = "\n".join(
+        re.search(rf"function {n}\(\w*\) \{{.*?\n\}}", reporte_html, re.S).group(0)
+        for n in ("repartir", "nominales", "aPagar")
+    )
     harness = tmp_path / "harness.js"
     harness.write_text(
         f"const DATOS = {datos};\n"
+        f"const COMISION = {COMISION};\n"
         "const objetivo = {};\n"
         "DATOS.forEach(d => objetivo[d.ticker] = 100 / DATOS.length);\n"
         f"{fuente}\n"
         f"const r = repartir({monto}).filas;\n"
-        "console.log(JSON.stringify(r.map(f => [f.ticker, Math.round(f.monto * 100) / 100])));",
+        "console.log(JSON.stringify(r.map(f => "
+        "[f.ticker, Math.round(f.monto * 100) / 100, nominales(f),"
+        " Math.round(aPagar(f) * 100) / 100])));",
         encoding="utf-8",
     )
     salida = subprocess.run(
@@ -145,8 +154,14 @@ def test_el_reparto_en_javascript_da_lo_mismo_que_en_python(reporte_html, tmp_pa
     en_js = [tuple(fila) for fila in json.loads(salida)]
 
     holdings = {p.ticker: p.market_value_ars for p in CARTERA}
+    precios = {p.ticker: p.price for p in CARTERA}
     en_python = [
-        (row.ticker, round(row.amount, 2))
+        (
+            row.ticker,
+            round(row.amount, 2),
+            row.units(precios[row.ticker], COMISION),
+            round(row.cost(precios[row.ticker], COMISION), 2),
+        )
         for row in allocate(holdings, equal_weights(holdings), monto)
     ]
     assert en_js == en_python

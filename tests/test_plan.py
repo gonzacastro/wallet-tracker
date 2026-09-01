@@ -117,10 +117,33 @@ def test_no_se_asignan_montos_irrisorios():
     assert next(f for f in filas if f.ticker == "B").amount == 0.0
 
 
-def test_los_nominales_salen_del_precio_de_hoy():
+def test_los_nominales_son_los_enteros_que_entran():
+    """Se compran papeles enteros: 4,99 nominales son 4."""
     filas = allocate({"AAPL": 1_139_880.0}, [Target("AAPL", 1.0)], 123_677)
-    assert filas[0].units(24_780.0) == pytest.approx(4.99, abs=0.01)
-    assert filas[0].units(0.0) is None
+    assert filas[0].units(24_780.0) == 4
+    assert filas[0].units(0.0) == 0
+    assert filas[0].units(None) == 0
+
+
+def test_la_comision_puede_sacar_un_nominal():
+    """Con 646.300 entran 50 GLD a 12.740... hasta que se suma la comision."""
+    fila = allocate({"GLD": 1_000_000.0}, [Target("GLD", 1.0)], 649_000)[0]
+    assert fila.units(12_740.0, 0.0) == 50            # 649.000 / 12.740 = 50,9
+    assert fila.units(12_740.0, 0.02) == 49           # con 2% ya no entra el 50
+
+
+def test_el_costo_es_lo_que_se_tipea_en_el_broker():
+    """El campo de monto del broker es un presupuesto: con este entran exactos."""
+    fila = allocate({"GLD": 1_000_000.0}, [Target("GLD", 1.0)], 646_300)[0]
+    assert fila.units(12_740.0, 0.006) == 50
+    assert fila.cost(12_740.0, 0.006) == pytest.approx(50 * 12_740 * 1.006)
+    # y ese monto alcanza justo para esos 50 nominales
+    assert fila.cost(12_740.0, 0.006) >= 50 * 12_740
+
+
+def test_sin_precio_no_hay_nominales_ni_costo():
+    fila = allocate({"X": 1_000.0}, [Target("X", 1.0)], 500)[0]
+    assert fila.units(None) == 0 and fila.cost(None) == 0.0
 
 
 def test_sin_objetivo_o_sin_plata_no_hay_reparto():

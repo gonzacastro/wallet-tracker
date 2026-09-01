@@ -240,7 +240,7 @@ def ver(
         console.print("[yellow]Sin credenciales:[/] se usa lo que ya hay en la base.")
 
     _, report = _report(settings)
-    path = write_report(report, salida)
+    path = write_report(report, salida, settings.commission)
     console.print(f"[green]Listo.[/] {path}")
     typer.launch(str(path))
 
@@ -348,7 +348,7 @@ def reporte(
 
     settings = _settings(env, db, demo)
     _, report = _report(settings)
-    path = write_report(report, salida)
+    path = write_report(report, salida, settings.commission)
     console.print(f"[green]Reporte generado:[/] {path}")
     if abrir:
         typer.launch(str(path))
@@ -381,10 +381,13 @@ def aportar(
             monto,
             con_objetivo=bool(targets_file),
             prices={p.ticker: p.price for p in report.positions if p.price},
+            commission=settings.commission,
         )
     )
     console.print(
-        "[dim]Esto no dice que instrumento va a subir: dice donde poner la plata nueva para\n"
+        f"[dim]La columna [/][bold]Poner en PPI[/][dim] ya incluye la comision "
+        f"({settings.commission:.2%}): es el numero que va en el campo de monto.\n"
+        "Esto no dice que instrumento va a subir: dice donde poner la plata nueva para\n"
         "que la cartera se parezca al reparto que vos definiste, comprando y sin vender nada.\n"
         f"Para cambiar el objetivo, edita [/][bold]{TARGETS_FILE}[/][dim] "
         "(hay un ejemplo en objetivo.example.json).[/]"
