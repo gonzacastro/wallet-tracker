@@ -20,6 +20,13 @@ from wallet_tracker.plan import allocate, equal_weights
 from wallet_tracker.report import render_html
 
 
+def funcion_js(html, nombre):
+    """Extrae una funcion del reporte para correrla en node."""
+    m = re.search(rf"function {nombre}\([^)]*\) \{{.*?\n\}}", html, re.S)
+    assert m, f"no se encontro la funcion {nombre} en el reporte"
+    return m.group(0)
+
+
 def position(ticker, value, price, quantity):
     return Position(
         ticker=ticker,
@@ -117,6 +124,52 @@ def test_las_clases_que_busca_el_script_estan_en_el_html(reporte_html):
         assert f'class="{clase}"' in reporte_html or f"{clase}" in reporte_html
 
 
+def test_se_puede_dejar_una_especie_afuera_del_aporte(reporte_html):
+    """Una casilla por fila, y un preset para las que vienen perdiendo."""
+    assert reporte_html.count('class="incluir"') == len(CARTERA)
+    assert 'id="preset-ganadoras"' in reporte_html
+    assert 'id="preset-todas"' in reporte_html
+    assert "ppi-excluidos-v1" in reporte_html
+
+
+def test_el_retorno_de_cada_especie_viaja_al_navegador(reporte_html):
+    """El preset de "saltear las que pierden" necesita saber cual pierde."""
+    datos = json.loads(re.search(r"const DATOS = (\[.*?\]);", reporte_html, re.S).group(1))
+    assert all("ret" in d for d in datos)
+
+
+@pytest.mark.skipif(not shutil.which("node"), reason="node no esta instalado")
+def test_excluir_una_especie_reparte_su_plata_entre_las_demas(reporte_html, tmp_path):
+    datos = re.search(r"const DATOS = (\[.*?\]);", reporte_html, re.S).group(1)
+    fuente = "\n".join(
+        funcion_js(reporte_html, n) for n in ("repartir", "nominales", "aPagar")
+    )
+    harness = tmp_path / "excluir.js"
+    harness.write_text(
+        f"const DATOS = {datos};\n"
+        f"const COMISION = {COMISION};\n"
+        "const objetivo = {};\n"
+        "DATOS.forEach(d => objetivo[d.ticker] = 100 / DATOS.length);\n"
+        "const sinTSLA = {...objetivo, TSLA: 0};\n"
+        f"{fuente}\n"
+        "const con = repartir(1000000, objetivo).filas;\n"
+        "const sin = repartir(1000000, sinTSLA).filas;\n"
+        "console.log(JSON.stringify({\n"
+        "  tslaCon: con.find(f => f.ticker === 'TSLA').monto,\n"
+        "  tslaSin: sin.find(f => f.ticker === 'TSLA').monto,\n"
+        "  totalCon: con.reduce((s, f) => s + f.monto, 0),\n"
+        "  totalSin: sin.reduce((s, f) => s + f.monto, 0),\n"
+        "}));",
+        encoding="utf-8",
+    )
+    r = json.loads(subprocess.run(["node", str(harness)], capture_output=True,
+                                  text=True, check=True).stdout)
+    assert r["tslaCon"] > 0            # con todas, TSLA recibe
+    assert r["tslaSin"] == 0           # excluida, no recibe nada
+    # y la plata no se pierde: sigue repartiendose entera entre las demas
+    assert r["totalSin"] == pytest.approx(r["totalCon"], abs=1.0)
+
+
 @pytest.mark.skipif(not shutil.which("node"), reason="node no esta instalado")
 def test_el_javascript_del_reporte_es_sintacticamente_valido(reporte_html, tmp_path):
     """Un parentesis de mas deja la pagina muerta sin que nada avise."""
@@ -132,8 +185,7 @@ def test_el_javascript_del_reporte_es_sintacticamente_valido(reporte_html, tmp_p
 def test_el_reparto_en_javascript_da_lo_mismo_que_en_python(reporte_html, tmp_path, monto):
     datos = re.search(r"const DATOS = (\[.*?\]);", reporte_html, re.S).group(1)
     fuente = "\n".join(
-        re.search(rf"function {n}\(\w*\) \{{.*?\n\}}", reporte_html, re.S).group(0)
-        for n in ("repartir", "nominales", "aPagar")
+        funcion_js(reporte_html, n) for n in ("repartir", "nominales", "aPagar")
     )
     harness = tmp_path / "harness.js"
     harness.write_text(
@@ -142,7 +194,7 @@ def test_el_reparto_en_javascript_da_lo_mismo_que_en_python(reporte_html, tmp_pa
         "const objetivo = {};\n"
         "DATOS.forEach(d => objetivo[d.ticker] = 100 / DATOS.length);\n"
         f"{fuente}\n"
-        f"const r = repartir({monto}).filas;\n"
+        f"const r = repartir({monto}, objetivo).filas;\n"
         "console.log(JSON.stringify(r.map(f => "
         "[f.ticker, Math.round(f.monto * 100) / 100, nominales(f),"
         " Math.round(aPagar(f) * 100) / 100])));",

@@ -126,7 +126,9 @@ details.tune summary { cursor: pointer; color: var(--muted); font-size: .85rem; 
 details.tune summary:hover { color: var(--ink); }
 .tune-grid { display: grid; gap: .55rem .9rem; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
              margin-top: .8rem; }
-.tune-row { display: grid; grid-template-columns: 3.4rem 1fr 3rem; align-items: center; gap: .6rem; }
+.tune-row { display: grid; grid-template-columns: 1rem 3.4rem 1fr 3rem; align-items: center; gap: .6rem; }
+.tune-row input.incluir { accent-color: var(--accent); cursor: pointer; }
+.tune-row.fuera span, .tune-row.fuera output { opacity: .4; }
 .tune-row span:first-child { font-weight: 600; font-size: .85rem; }
 .tune-row output { color: var(--muted); font-size: .82rem; text-align: right; font-variant-numeric: tabular-nums; }
 .tune-row input[type=range] { width: 100%; accent-color: var(--accent); }
@@ -141,6 +143,15 @@ ALLOCATOR_JS = """
 const fmt = new Intl.NumberFormat("es-AR", {maximumFractionDigits: 0});
 const pct = (v) => (v * 100).toFixed(1).replace(".", ",") + "%";
 const guardado = "ppi-objetivo-v1";
+const guardadoFuera = "ppi-excluidos-v1";
+
+// Especies que dejas afuera de *este* aporte. Se guarda aparte del objetivo
+// para que sacarlas no te borre el peso que les habias puesto: cuando las
+// volves a incluir, vuelven a donde estaban.
+let excluidos = new Set();
+try {
+  excluidos = new Set(JSON.parse(localStorage.getItem(guardadoFuera)) || []);
+} catch (e) { excluidos = new Set(); }
 
 let objetivo = {};
 try {
@@ -153,15 +164,29 @@ if (!Object.keys(objetivo).length) {
 }
 
 function persistir() {
-  try { localStorage.setItem(guardado, JSON.stringify(objetivo)); } catch (e) {}
+  try {
+    localStorage.setItem(guardado, JSON.stringify(objetivo));
+    localStorage.setItem(guardadoFuera, JSON.stringify([...excluidos]));
+  } catch (e) {}
 }
 
-function repartir(monto) {
+// El objetivo que ve el repartidor: lo excluido pesa cero y el resto se
+// renormaliza solo. `repartir` no sabe que existe la exclusion, asi que sigue
+// siendo identico al de Python y el chequeo cruzado los compara igual.
+function objetivoEfectivo() {
+  const salida = {};
+  DATOS.forEach((d) => {
+    salida[d.ticker] = excluidos.has(d.ticker) ? 0 : (objetivo[d.ticker] || 0);
+  });
+  return salida;
+}
+
+function repartir(monto, pesos) {
   const actual = DATOS.reduce((s, d) => s + d.value, 0);
   const final = actual + monto;
-  const suma = Object.values(objetivo).reduce((a, b) => a + b, 0) || 1;
+  const suma = Object.values(pesos).reduce((a, b) => a + b, 0) || 1;
   const filas = DATOS.map((d) => {
-    const peso = objetivo[d.ticker] / suma;
+    const peso = pesos[d.ticker] / suma;
     return {...d, peso, falta: Math.max(0, peso * final - d.value), monto: 0};
   });
   const necesario = filas.reduce((s, f) => s + f.falta, 0);
@@ -192,7 +217,7 @@ function aPagar(f) {
 }
 
 function pintar() {
-  const {filas, actual, final} = repartir(leerMonto());
+  const {filas, actual, final} = repartir(leerMonto(), objetivoEfectivo());
   let total = 0;
   document.getElementById("reparto-body").innerHTML = filas.map((f) => {
     const n = nominales(f);
@@ -200,9 +225,11 @@ function pintar() {
     const cuantos = n >= 1
       ? '<span class="units">' + n + "</span> x $" + fmt.format(f.price)
       : '<span class="skip">&mdash;</span>';
+    let motivo = f.monto > 0 ? "no alcanza" : "ya esta arriba";
+    if (excluidos.has(f.ticker)) motivo = "lo dejaste afuera";
     const pagar = n >= 1
       ? '<span class="buy">$' + fmt.format(Math.round(aPagar(f))) + "</span>"
-      : '<span class="skip">' + (f.monto > 0 ? "no alcanza" : "ya esta arriba") + "</span>";
+      : '<span class="skip">' + motivo + "</span>";
     return '<tr><td class="ticker">' + f.ticker + "</td>"
       + "<td>" + pct(actual ? f.value / actual : 0) + "</td>"
       + "<td>" + pct(f.peso) + "</td>"
@@ -219,11 +246,32 @@ function pintar() {
 // Solo se actualiza el texto del porcentaje, no la fila entera: si se redibuja
 // el deslizador mientras lo arrastras, el navegador pierde el arrastre.
 function pintarSliders() {
-  const suma = Object.values(objetivo).reduce((a, b) => a + b, 0) || 1;
+  const pesos = objetivoEfectivo();
+  const suma = Object.values(pesos).reduce((a, b) => a + b, 0) || 1;
   document.querySelectorAll(".tune-row").forEach((row) => {
-    row.querySelector("output").textContent = pct(objetivo[row.dataset.ticker] / suma);
+    const t = row.dataset.ticker;
+    const fuera = excluidos.has(t);
+    row.classList.toggle("fuera", fuera);
+    row.querySelector("input.incluir").checked = !fuera;
+    row.querySelector("output").textContent = fuera ? "\u2014" : pct(pesos[t] / suma);
   });
 }
+
+document.querySelectorAll(".tune-row input.incluir").forEach((caja) => {
+  caja.addEventListener("change", () => {
+    const t = caja.closest(".tune-row").dataset.ticker;
+    if (caja.checked) excluidos.delete(t); else excluidos.add(t);
+    persistir(); pintarSliders(); pintar();
+  });
+});
+document.getElementById("preset-ganadoras").addEventListener("click", () => {
+  excluidos = new Set(DATOS.filter((d) => (d.ret ?? 0) < 0).map((d) => d.ticker));
+  persistir(); pintarSliders(); pintar();
+});
+document.getElementById("preset-todas").addEventListener("click", () => {
+  excluidos = new Set();
+  persistir(); pintarSliders(); pintar();
+});
 
 document.getElementById("monto").addEventListener("input", (e) => {
   const n = (e.target.value || "").replace(/[^0-9]/g, "");
@@ -509,6 +557,8 @@ def _allocator(report: PortfolioReport) -> str:
         return ""
     sliders = "\n".join(
         f"""<div class="tune-row" data-ticker="{html.escape(p.ticker)}">
+      <input type="checkbox" class="incluir" checked
+             aria-label="incluir {html.escape(p.ticker)} en el aporte">
       <span>{html.escape(p.ticker)}</span>
       <input type="range" min="0" max="60" step="0.5" value="0"
              aria-label="objetivo de {html.escape(p.ticker)}">
@@ -542,6 +592,8 @@ def _allocator(report: PortfolioReport) -> str:
       <div class="money-row" style="margin:.8rem 0 0">
         <button class="chip" id="preset-actual">Como esta hoy</button>
         <button class="chip" id="preset-iguales">Partes iguales</button>
+        <button class="chip" id="preset-ganadoras">Saltear las que pierden</button>
+        <button class="chip" id="preset-todas">Incluir todas</button>
       </div>
       <div class="tune-grid">{sliders}</div>
     </details>
@@ -630,6 +682,7 @@ def render_html(report: PortfolioReport, commission: float = 0.0) -> str:
                 "value": round(p.market_value_ars or 0.0, 2),
                 "price": round(p.price or 0.0, 2),
                 "target": objetivo.get(p.ticker),
+                "ret": p.total_return_pct,
             }
             for p in report.positions
             if p.market_value_ars

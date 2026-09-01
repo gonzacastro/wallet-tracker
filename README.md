@@ -302,7 +302,7 @@ mano y el repartidor de aportes es JavaScript inline. Se abre sin conexión.
 pytest
 ```
 
-235 tests. Incluyen la conciliación contra la foto de tenencias del broker, la coherencia entre
+238 tests. Incluyen la conciliación contra la foto de tenencias del broker, la coherencia entre
 `.env.example` y la plantilla del código, y —si tenés `node` instalado— una comparación del
 repartidor de aportes entre su implementación en Python y su port a JavaScript, para que no se
 desincronicen.
